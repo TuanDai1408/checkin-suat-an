@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Check-in suất ăn giáo viên</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+      background: linear-gradient(160deg, #0f3d2e 0%, #1a5c42 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      color: #fff;
+    }
+    h1 { font-size: 20px; margin: 8px 0 16px; text-align: center; }
+    #reader-wrap {
+      width: 100%;
+      max-width: 420px;
+      background: #000;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    }
+    #reader { width: 100%; }
+    .manual-box {
+      width: 100%;
+      max-width: 420px;
+      margin-top: 16px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .manual-box label { font-size: 13px; opacity: 0.8; display: block; margin-bottom: 6px; }
+    .manual-row { display: flex; gap: 8px; }
+    #manualInput { flex: 1; padding: 12px; border-radius: 8px; border: none; font-size: 16px; }
+    #manualBtn { padding: 12px 18px; border-radius: 8px; border: none; background: #ffcb3d; color: #1a1a1a; font-weight: 600; cursor: pointer; }
+    #status {
+      width: 100%; max-width: 420px; margin-top: 16px; padding: 18px;
+      border-radius: 12px; text-align: center; font-size: 16px; font-weight: 600;
+      display: none; animation: fadeIn 0.2s ease;
+    }
+    #status.success { background: #2e9e5b; display: block; }
+    #status.error { background: #d64545; display: block; }
+    #status .sub { font-size: 13px; font-weight: 400; opacity: 0.9; margin-top: 4px; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    #loading { display: none; margin-top: 12px; font-size: 13px; opacity: 0.8; }
+    .footer-tip { margin-top: 20px; font-size: 12px; opacity: 0.6; text-align: center; max-width: 420px; }
+    #configWarning {
+      display: none; width: 100%; max-width: 420px; margin-top: 16px;
+      background: #d64545; padding: 14px; border-radius: 12px; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🍱 Check-in suất ăn giáo viên</h1>
+
+  <div id="configWarning">
+    ⚠️ Chưa cấu hình API_URL trong file này. Mở file, sửa dòng
+    <code>const API_URL = "..."</code> thành link Web App Apps Script của bạn
+    (kết thúc bằng <code>/exec</code>).
+  </div>
+
+  <div id="reader-wrap">
+    <div id="reader"></div>
+  </div>
+
+  <div id="loading">Đang xử lý...</div>
+  <div id="status"></div>
+
+  <div class="manual-box">
+    <label for="manualInput">Không quét được? Nhập mã thủ công:</label>
+    <div class="manual-row">
+      <input id="manualInput" type="text" placeholder="VD: K001-1001" autocomplete="off">
+      <button id="manualBtn">Xác nhận</button>
+    </div>
+  </div>
+
+  <div class="footer-tip">Đưa camera hướng vào mã vạch / QR trên thẻ giáo viên. Hệ thống sẽ tự nhận diện.</div>
+
+  <script>
+    // ============================================================
+    // CẤU HÌNH — BẮT BUỘC SỬA DÒNG DƯỚI ĐÂY
+    // Dán link Web App Apps Script của bạn vào (kết thúc bằng /exec)
+    // Lấy link này ở bước Deploy > Web app trong Apps Script.
+    // ============================================================
+    const API_URL = "https://script.google.com/macros/s/AKfycbwyybTYK2JJ9WbZLft9qawQCCp5gPiSkCoeVl4HRfoMjJxeGOWtI0E3ylznNRL0DgRXJg/exec";
+    // ============================================================
+
+    if (API_URL.indexOf('DÁN_ID_TRIỂN_KHAI') !== -1) {
+      document.getElementById('configWarning').style.display = 'block';
+    }
+
+    let dangXuLy = false;
+    let coTheQuetLai = true;
+
+    function hienThiTrangThai(loai, message, sub) {
+      const el = document.getElementById('status');
+      el.className = loai;
+      el.innerHTML = message + (sub ? '<div class="sub">' + sub + '</div>' : '');
+    }
+
+    function xuLyMa(maGV) {
+      if (dangXuLy || !coTheQuetLai) return;
+      dangXuLy = true;
+      coTheQuetLai = false;
+      document.getElementById('loading').style.display = 'block';
+
+      fetch(API_URL, {
+        method: 'POST',
+        // Dùng text/plain để trình duyệt KHÔNG gửi preflight OPTIONS
+        // (Apps Script không xử lý được preflight -> sẽ lỗi CORS nếu dùng application/json)
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ maGV: maGV })
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (res) {
+          document.getElementById('loading').style.display = 'none';
+          dangXuLy = false;
+
+          if (res.success) {
+            hienThiTrangThai('success', '✅ ' + res.hoTen, (res.phongBan || '') + ' — ' + res.thoiGian);
+            beep(true);
+          } else {
+            hienThiTrangThai('error', '⚠️ ' + res.message, res.hoTen ? res.hoTen : '');
+            beep(false);
+          }
+
+          setTimeout(function () { coTheQuetLai = true; }, 3000);
+          setTimeout(function () { document.getElementById('status').style.display = 'none'; }, 4000);
+        })
+        .catch(function (err) {
+          document.getElementById('loading').style.display = 'none';
+          dangXuLy = false;
+          coTheQuetLai = true;
+          hienThiTrangThai('error', '⚠️ Lỗi kết nối', err.message || String(err));
+        });
+    }
+
+    function beep(thanhCong) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = thanhCong ? 880 : 300;
+        gain.gain.value = 0.15;
+        osc.start();
+        osc.stop(ctx.currentTime + 0.15);
+      } catch (e) {}
+    }
+
+    // ---- Khởi động camera quét mã ----
+    const html5QrCode = new Html5Qrcode("reader");
+    const config = {
+      fps: 10,
+      qrbox: { width: 260, height: 160 },
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8
+      ]
+    };
+
+    html5QrCode.start(
+      { facingMode: "environment" },
+      config,
+      function (decodedText) { xuLyMa(decodedText); },
+      function (errorMessage) { /* bỏ qua lỗi khi chưa nhận diện được khung hình */ }
+    ).catch(function (err) {
+      hienThiTrangThai('error', '⚠️ Không mở được camera', 'Vui lòng cấp quyền camera cho trình duyệt (và đảm bảo trang đang chạy ở HTTPS).');
+    });
+
+    // ---- Nhập mã thủ công (fallback) ----
+    document.getElementById('manualBtn').addEventListener('click', function () {
+      const val = document.getElementById('manualInput').value.trim();
+      if (val) {
+        xuLyMa(val);
+        document.getElementById('manualInput').value = '';
+      }
+    });
+    document.getElementById('manualInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { document.getElementById('manualBtn').click(); }
+    });
+  </script>
+</body>
+</html>
